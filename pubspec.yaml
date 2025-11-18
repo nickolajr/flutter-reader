@@ -1,0 +1,41 @@
+name: flutterreader
+description: A manhwa reader app with progress tracking
+
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+  #http requests
+  http: ^1.5.0
+  #database
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0
+  sqflite_migration: ^0.3.0
+  path: ^1.8.3
+  dio: ^5.9.0
+  path_provider: ^2.1.5
+  flutter_lua_vm:
+    path: ../flutter_lua_vm
+  html: ^0.15.6
+    # use the below code to use the git version instead of the local version
+    # git:
+    #   url: https://github.com/Aesir-Development/flutter_lua_vm.git
+    #   ref: main
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - plugins/
+    - plugins/libs/
