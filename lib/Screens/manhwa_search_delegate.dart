@@ -59,7 +59,8 @@ class ManhwaSearchDelegate extends SearchDelegate {
 
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const Center(
-            child: Text('No results found', style: TextStyle(color: Colors.grey)),
+            child:
+                Text('No results found', style: TextStyle(color: Colors.grey)),
           );
         }
 
@@ -74,7 +75,8 @@ class ManhwaSearchDelegate extends SearchDelegate {
               mainAxisSpacing: 16,
             ),
             itemCount: results.length,
-            itemBuilder: (context, index) => _buildManhwaCard(context, results[index]),
+            itemBuilder: (context, index) =>
+                _buildManhwaCard(context, results[index]),
           ),
         );
       },
@@ -91,28 +93,34 @@ class ManhwaSearchDelegate extends SearchDelegate {
       for (String pluginName in pluginNames) {
         try {
           List<Pointer<Variant>> args = [PluginService.lvm.stringArg(query)];
-          final result = await PluginService.lvm.exec("$pluginName.GetSearch", args);
+          final result =
+              await PluginService.lvm.exec("$pluginName.GetSearch", args);
           debugPrint("Search result for $pluginName: $result");
 
           if (result == null || result.isEmpty) continue;
 
           List<dynamic> jsonResult = jsonDecode(result);
-          var manhwas = jsonResult.map((item) => Manhwa(
-                id: item['id']?.toString() ?? '',
-                name: item['title'] ?? '',
-                description: item['description'] ?? '',
-                genres: List<String>.from(item['genres'] ?? []),
+          var manhwas = jsonResult
+              .map((item) => Manhwa(
+                    id: item['id']?.toString() ?? '',
+                    name: item['title'] ?? '',
+                    description: item['description'] ?? '',
+                    genres: List<String>.from(item['genres'] ?? []),
 
-                rating: (item['rating'] ?? 0.0).toDouble(),
-                status: item['status'] ?? '',
-                author: item['author'] ?? '',
-                artist: item['artist'] ?? '',
-                lastUpdated: item['lastUpdated'] != null ? DateTime.tryParse(item['lastUpdated']) : null,
-                chapters: [], // Empty list; chapters fetched in ManhwaDetailScreen
-                coverImageUrl: item['thumbnail'],
-                pluginName: pluginName,
-                chapterCount: item['chapter_count']?.toInt() ?? 0, // Use chapter_count from search
-              )).toList();
+                    rating: (item['rating'] ?? 0.0).toDouble(),
+                    status: item['status'] ?? '',
+                    author: item['author'] ?? '',
+                    artist: item['artist'] ?? '',
+                    lastUpdated: item['lastUpdated'] != null
+                        ? DateTime.tryParse(item['lastUpdated'])
+                        : null,
+                    chapters: [], // Empty list; chapters fetched in ManhwaDetailScreen
+                    coverImageUrl: item['thumbnail'],
+                    pluginName: pluginName,
+                    chapterCount: item['chapter_count']?.toInt() ??
+                        0, // Use chapter_count from search
+                  ))
+              .toList();
 
           allManhwas.addAll(manhwas);
         } catch (e, stackTrace) {
@@ -136,7 +144,7 @@ class ManhwaSearchDelegate extends SearchDelegate {
           builder: (ctx) => ManhwaDetailScreen(
             manhwaId: manhwa.id,
             name: manhwa.name,
-            pluginName: manhwa.pluginName ?? 'FLAMECOMICS',
+            pluginName: manhwa.pluginName ?? "NOT FOUND",
           ),
         ),
       ),
@@ -145,7 +153,10 @@ class ManhwaSearchDelegate extends SearchDelegate {
           color: const Color(0xFF2a2a2a),
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4)),
+            BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 4)),
           ],
         ),
         child: Column(
@@ -154,19 +165,23 @@ class ManhwaSearchDelegate extends SearchDelegate {
             Expanded(
               flex: 4,
               child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(12)),
                 child: manhwa.coverImageUrl != null
                     ? Image.network(
                         manhwa.coverImageUrl!,
                         fit: BoxFit.cover,
                         width: double.infinity,
-                        errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(manhwa),
-                        loadingBuilder: (context, child, progress) => progress == null
-                            ? child
-                            : Container(
-                                color: Colors.grey[900],
-                                child: const Center(child: CircularProgressIndicator()),
-                              ),
+                        errorBuilder: (context, error, stackTrace) =>
+                            _buildPlaceholderImage(manhwa),
+                        loadingBuilder: (context, child, progress) =>
+                            progress == null
+                                ? child
+                                : Container(
+                                    color: Colors.grey[900],
+                                    child: const Center(
+                                        child: CircularProgressIndicator()),
+                                  ),
                       )
                     : _buildPlaceholderImage(manhwa),
               ),
@@ -194,7 +209,8 @@ class ManhwaSearchDelegate extends SearchDelegate {
                       children: [
                         Text(
                           manhwa.genreString,
-                          style: TextStyle(color: Colors.grey[400], fontSize: 10),
+                          style:
+                              TextStyle(color: Colors.grey[400], fontSize: 10),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),

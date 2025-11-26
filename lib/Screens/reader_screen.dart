@@ -231,33 +231,42 @@ class _ReaderScreenState extends State<ReaderScreen> with TickerProviderStateMix
     super.dispose();
   }
 
-  void _initializeReader() {
-    _appBarAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    )..forward();
-    
-    startingChapterIndex = widget.allChapters.indexWhere((c) => c.number == widget.chapter.number);
-    if (startingChapterIndex == -1) startingChapterIndex = 0;
-    
-    _loadedChapters.add(_LoadedChapter(
-      chapterIndex: startingChapterIndex,
-      chapter: widget.allChapters[startingChapterIndex],
-      images: widget.allChapters[startingChapterIndex].images,
-      imageLoadingStates: {},
-    ));
-    
-    _currentVisibleChapterIndex = startingChapterIndex;
-    _scrollController.addListener(_scrollListener);
-    _currentPageIndex = widget.initialPageIndex;
-    
-    for (int i = 0; i < widget.allChapters.length; i++) {
-      _chapterDividerKeys[i] = GlobalKey();
-    }
-    
-    _manhwaId = widget.manhwaId;
-    _loadProgress();
+void _initializeReader() {
+  _appBarAnimationController = AnimationController(
+    duration: const Duration(milliseconds: 300),
+    vsync: this,
+  )..forward();
+  
+  startingChapterIndex = widget.allChapters.indexWhere((c) => c.number == widget.chapter.number);
+  if (startingChapterIndex == -1) startingChapterIndex = 0;
+  
+  // DEBUG: Check what we're putting in _loadedChapters
+  print('=== INITIALIZE READER DEBUG ===');
+  print('Widget chapter images count: ${widget.chapter.images.length}');
+  print('Starting chapter index: $startingChapterIndex');
+  
+  // Use the chapter that was passed (with populated images)
+  _loadedChapters.add(_LoadedChapter(
+    chapterIndex: startingChapterIndex,
+    chapter: widget.chapter, // Use the passed chapter with images
+    images: widget.chapter.images, // Use the images from the passed chapter
+    imageLoadingStates: {},
+  ));
+  
+  print('First loaded chapter images count: ${_loadedChapters.first.images.length}');
+  print('=================================');
+  
+  _currentVisibleChapterIndex = startingChapterIndex;
+  _scrollController.addListener(_scrollListener);
+  _currentPageIndex = widget.initialPageIndex;
+  
+  for (int i = 0; i < widget.allChapters.length; i++) {
+    _chapterDividerKeys[i] = GlobalKey();
   }
+  
+  _manhwaId = widget.manhwaId;
+  _loadProgress();
+}
 
   // =============================================================================
   // SCROLL POSITION AND NAVIGATION
@@ -525,6 +534,20 @@ void _updateCurrentPage(double offset) {
   }
 
 void _loadFullChapter(_LoadedChapter chapter) async {
+    print('=== LOAD FULL CHAPTER DEBUG ===');
+  print('Chapter index: ${chapter.chapterIndex}');
+  print('Chapter number: ${chapter.chapter.number}');
+  print('Number of images to load: ${chapter.images.length}');
+  
+  if (chapter.images.isEmpty) {
+    print('ERROR: No images to load!');
+    return;
+  }
+  
+  for (int i = 0; i < min(3, chapter.images.length); i++) {
+    print('Image $i: ${chapter.images[i]}');
+  }
+  print('==============================');
   // First, check for offline images and replace URLs
   final offlineImagePaths = await OfflineImageLoader.getChapterImagePaths(
     _manhwaId!,
@@ -1141,20 +1164,30 @@ void _calculateDividerPositions() {
   // =============================================================================
   // UI BUILDING METHODS
   // =============================================================================
-
 Widget _buildEnhancedProgressBar() {
-  if (!_scrollController.hasClients) {
+  if (!_scrollController.hasClients || _loadedChapters.isEmpty) {
     return const SizedBox.shrink();
   }
 
+  // Safely get current chapter data
   final currentChapterData = _loadedChapters.firstWhere(
     (c) => c.chapterIndex == _currentVisibleChapterIndex,
     orElse: () => _loadedChapters.first,
   );
-  final currentChapter = widget.allChapters[_currentVisibleChapterIndex];
-  final totalPagesInChapter = currentChapterData.images.length;
-  final currentPageInChapter = (_currentPageIndex + 1).clamp(1, totalPagesInChapter);
 
+  // Safely get current chapter from all chapters
+  if (_currentVisibleChapterIndex >= widget.allChapters.length) {
+    return const SizedBox.shrink();
+  }
+  final currentChapter = widget.allChapters[_currentVisibleChapterIndex];
+  
+  // Safely calculate page numbers
+  final totalPagesInChapter = currentChapterData.images.length;
+  
+  // Ensure currentPageInChapter is within valid range
+  final currentPageInChapter = (_currentPageIndex + 1).clamp(1, max(1, totalPagesInChapter));
+
+  // Calculate progress safely
   final chapterProgress = totalPagesInChapter > 0
       ? (currentPageInChapter / totalPagesInChapter).clamp(0.0, 1.0)
       : 0.0;
@@ -1186,7 +1219,9 @@ Widget _buildEnhancedProgressBar() {
                 children: [
                   Flexible(
                     child: Text(
-                      'Ch.${currentChapter.number} - Page $currentPageInChapter of $totalPagesInChapter',
+                      totalPagesInChapter > 0 
+                          ? 'Ch.${currentChapter.number} - Page $currentPageInChapter of $totalPagesInChapter'
+                          : 'Ch.${currentChapter.number} - Loading...',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 11,

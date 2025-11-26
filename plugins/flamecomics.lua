@@ -3,7 +3,7 @@ FLAMECOMICS = {}
 function FLAMECOMICS:GetBuildID()
     local data = fetch("https://flamecomics.xyz")
 
-    local content = selector(data, "script#__NEXT_DATA__")
+    local content = selector(data, "script#__NEXT_DATA__", "", false)
     local table = json.decode(content)
 
     return table.buildId
@@ -50,7 +50,12 @@ end
 function FLAMECOMICS:GetTitleDetails(id)
     local idString = tostring(id)
     local url = self:DataApiRequestBuilder() .. "/series/" .. idString .. ".json?id=" .. idString
+    print("Got ApiRequestBuilder")
     local res = fetch(url)
+
+    print("LUA: " .. url)
+    print("LUA: " .. res)
+
     local data = json.decode(res)
 
     local item = {
@@ -81,10 +86,30 @@ function FLAMECOMICS:GetChapter(titleId, chapterNum)
         end
     end
 
+    print("Chapter data:")
+    for k, v in pairs(chapter) do
+        print(k .. ": " .. tostring(v))
+    end
+
+    local chapterUrl = "https://flamecomics.xyz/series/" .. tostring(titleId) .. "/" .. tostring(chapter.token)
+    local chapterData = fetch(chapterUrl)
+
+
+
+    local chapterUrls = selector(chapterData, "img", "src", true)
+    local chapterJson = json.decode(chapterUrls)
+
+
     local images = {}
-    for _, v in pairs(chapter.images) do
-        table.insert(images, self:ImageApiUrlBuilder() ..
-            "/" .. titleId .. "/" .. chapter.token .. "/" .. v.name)
+    for _, v in pairs(chapterJson) do
+        local found = string.find(v, chapter.token)
+        if found then
+            table.insert(images, v)
+        end
+    end
+
+    for _, v in pairs(images) do
+        print(v)
     end
 
     local fChapter = {
