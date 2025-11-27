@@ -169,25 +169,44 @@ Future<void> _syncWithBackend() async {
   });
   
   try {
-    final result = await ApiService.enhancedPullSync();
-    if (result.success) {
-      setState(() {
-        _syncProgress = 'Loading library details...';
-      });
+    // Step 1: Pull sync data from backend
+    setState(() => _syncProgress = 'Downloading sync data...');
+    final pullResult = await ApiService.enhancedPullSync();
+    
+    if (pullResult.success) {
+      setState(() => _syncProgress = 'Processing library data...');
       
-      // Reload the library to show newly synced items
-      await _loadManhwas();
+      // Wait a moment for the background processing
+      await Future.delayed(const Duration(seconds: 2));
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Successfully synced with backend'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      // Step 2: PUSH local library to backend (THIS IS WHAT YOU'RE MISSING)
+      setState(() => _syncProgress = 'Uploading library to backend...');
+      final pushResult = await ApiService.enhancedPushSync();
+      
+      if (pushResult.success) {
+        setState(() => _syncProgress = 'Loading updated library...');
+        
+        // Reload the library to show changes
+        await _loadManhwas();
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Successfully synced library with backend'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Push sync failed: ${pushResult.error}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Sync failed: ${result.error}'),
+          content: Text('Pull sync failed: ${pullResult.error}'),
           backgroundColor: Colors.red,
         ),
       );

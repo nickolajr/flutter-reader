@@ -788,7 +788,7 @@ static Future<Set<double>> getDownloadedChapters(String manhwaId) async {
       'database_version': 3,
     };
   }
-  // Library synchronization methods
+
 static Future<void> syncLibraryWithBackend(List<String> libraryManhwaIds) async {
   final db = await database;
   
@@ -799,10 +799,7 @@ static Future<void> syncLibraryWithBackend(List<String> libraryManhwaIds) async 
   // Find manhwa to add (in backend but not locally)
   final toAdd = libraryManhwaIds.where((id) => !currentIds.contains(id)).toList();
   
-  // Find manhwa to remove (locally but not in backend)
-  final toRemove = currentIds.where((id) => !libraryManhwaIds.contains(id)).toList();
-  
-  print('Library sync - To add: ${toAdd.length} manhwas, To remove: ${toRemove.length} manhwas');
+  print('Library sync - To add: ${toAdd.length} manhwas');
   
   // Process additions in batches with progress
   for (int i = 0; i < toAdd.length; i++) {
@@ -832,15 +829,44 @@ static Future<void> syncLibraryWithBackend(List<String> libraryManhwaIds) async 
     }
   }
   
-  // Remove manhwas
-  for (final manhwaId in toRemove) {
-    await db.delete('manhwas', where: 'id = ?', whereArgs: [manhwaId]);
-    print('Removed: $manhwaId');
+  // IMPORTANT: Sync the newly added manhwas to backend library
+  if (toAdd.isNotEmpty && ApiService.isLoggedIn) {
+    print('Syncing ${toAdd.length} newly added manhwas to backend library...');
+    final result = await ApiService.syncLibrary(add: toAdd, remove: []);
+    if (result.success) {
+      print('✓ Successfully synced ${toAdd.length} manhwas to backend library');
+    } else {
+      print('✗ Failed to sync to backend: ${result.error}');
+    }
   }
   
-  print('Library sync completed');
+  print('Library sync completed - ${toAdd.length} added');
 }
 
+// NEW METHOD: Sync added manhwas to backend library
+static Future<void> _syncAddedManhwasToBackend(List<String> addedManhwas) async {
+  if (!ApiService.isLoggedIn) {
+    print('User not logged in, skipping backend library sync');
+    return;
+  }
+  
+  try {
+    print('Syncing ${addedManhwas.length} manhwas to backend library...');
+    
+    final result = await ApiService.syncLibrary(
+      add: addedManhwas,
+      remove: [], // Only adding, not removing anything
+    );
+    
+    if (result.success) {
+      print('✓ Successfully synced ${addedManhwas.length} manhwas to backend library');
+    } else {
+      print('✗ Failed to sync manhwas to backend library: ${result.error}');
+    }
+  } catch (e) {
+    print('✗ Error syncing manhwas to backend library: $e');
+  }
+}
 // Helper method to parse manhwa ID and extract plugin info
 static (String, String) _parseManhwaId(String manhwaId) {
   final parts = manhwaId.split(':');
