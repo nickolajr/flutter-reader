@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'manhwa_service.dart';
 import 'sqlite_progress_service.dart';
+
 class ApiService {
   static const String _defaultBaseUrl = 'http://localhost:8080';
   static String _baseUrl = _defaultBaseUrl;
@@ -279,6 +280,55 @@ class ApiService {
     }
   }
 
+  // Enhanced sync methods
+  static Future<void> _handlePullSync(SyncData syncData) async {
+    // Sync library
+    await SQLiteProgressService.syncLibraryWithBackend(syncData.library);
+    
+    // Sync progress
+    for (final progress in syncData.progress) {
+      await SQLiteProgressService.saveProgress(
+        progress.manhwaId,
+        progress.chapterNumber,
+        progress.currentPage,
+        progress.scrollPosition,
+        markAsRead: progress.isRead,
+      );
+    }
+    
+    print('Successfully synced ${syncData.library.length} library items and ${syncData.progress.length} progress records');
+  }
+
+  static Future<List<ProgressUpdate>> _getLocalProgressForSync() async {
+    final progressData = await SQLiteProgressService.getAllProgressForSync();
+    return progressData;
+  }
+
+  static Future<SyncResult> enhancedPullSync() async {
+    final result = await pullSync();
+    if (result.success && result.data != null) {
+      await _handlePullSync(result.data!);
+    }
+    return result;
+  }
+
+  static Future<SyncResult> enhancedPushSync() async {
+    // Get local library to send to backend
+    final localLibrary = await SQLiteProgressService.getLocalLibrary();
+    
+    // Get local progress to send to backend
+    final localProgress = await _getLocalProgressForSync();
+    
+    // First sync the library
+    final libraryResult = await syncLibrary(add: localLibrary, remove: []);
+    if (!libraryResult.success) {
+      return libraryResult;
+    }
+    
+    // Then sync the progress
+    return await pushProgress(localProgress);
+  }
+
   // Utility
   static Future<Map<String, dynamic>?> getUserStats() async {
     if (!isLoggedIn) return null;
@@ -382,7 +432,7 @@ class ApiService {
   }
 }
 
-// Data models (unchanged)
+// Data models
 class User {
   final int id;
   final String email;
@@ -445,17 +495,17 @@ class RemoteProgress {
     required this.updatedAt,
   });
 
-factory RemoteProgress.fromJson(Map<String, dynamic> json) {
-  return RemoteProgress(
-    manhwaId: json['manhwaId'],
-    chapterNumber: (json['chapterNumber'] as num).toDouble(),
-    currentPage: (json['currentPage'] as num).toInt(),
-    scrollPosition: (json['scrollPosition'] as num).toDouble(),
-    isRead: json['isRead'] is bool ? json['isRead'] : (json['isRead'] == 1),
-    lastReadAt: DateTime.parse(json['lastReadAt']),
-    updatedAt: DateTime.parse(json['updatedAt']),
-  );
-}
+  factory RemoteProgress.fromJson(Map<String, dynamic> json) {
+    return RemoteProgress(
+      manhwaId: json['manhwaId'],
+      chapterNumber: (json['chapterNumber'] as num).toDouble(),
+      currentPage: (json['currentPage'] as num).toInt(),
+      scrollPosition: (json['scrollPosition'] as num).toDouble(),
+      isRead: json['isRead'] is bool ? json['isRead'] : (json['isRead'] == 1),
+      lastReadAt: DateTime.parse(json['lastReadAt']),
+      updatedAt: DateTime.parse(json['updatedAt']),
+    );
+  }
 }
 
 class ProgressUpdate {
@@ -484,7 +534,7 @@ class ProgressUpdate {
   }
 }
 
-// Result classes (unchanged)
+// Result classes
 class AuthResult {
   final bool success;
   final User? user;

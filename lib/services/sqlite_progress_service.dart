@@ -4,7 +4,9 @@ import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import '../Data/manhwa_data.dart'; 
-
+import '../services/api_service.dart';
+import 'package:flutterreader/models/manwha.dart';
+import 'package:flutterreader/services/plugin_service.dart'; 
 class SQLiteProgressService {
   static Database? _database;
   static bool _factoryInitialized = false;
@@ -786,4 +788,173 @@ static Future<Set<double>> getDownloadedChapters(String manhwaId) async {
       'database_version': 3,
     };
   }
+  // Library synchronization methods
+static Future<void> syncLibraryWithBackend(List<String> libraryManhwaIds) async {
+  final db = await database;
+  
+  // Get current local library
+  final currentLibrary = await db.query('manhwas', columns: ['id']);
+  final currentIds = currentLibrary.map((row) => row['id'] as String).toList();
+  
+  // Find manhwa to add (in backend but not locally)
+  final toAdd = libraryManhwaIds.where((id) => !currentIds.contains(id)).toList();
+  
+  // Find manhwa to remove (locally but not in backend)
+  final toRemove = currentIds.where((id) => !libraryManhwaIds.contains(id)).toList();
+  
+  print('Library sync - To add: ${toAdd.length} manhwas, To remove: ${toRemove.length} manhwas');
+  
+  // Process additions in batches with progress
+  for (int i = 0; i < toAdd.length; i++) {
+    final manhwaId = toAdd[i];
+    print('Fetching details for manhwa ${i + 1}/${toAdd.length}: $manhwaId');
+    
+    try {
+      // Parse manhwa ID to extract plugin info
+      final (pluginName, actualId) = _parseManhwaId(manhwaId);
+      
+      // Fetch details from plugin
+      final manhwaDetails = await PluginService.getManhwaDetails(pluginName, actualId);
+      
+      // Save to database
+      await _saveManhwaWithChapters(db, manhwaId, manhwaDetails);
+      
+      print('✓ Added: ${manhwaDetails.name}');
+    } catch (e) {
+      print('✗ Failed to add $manhwaId: $e');
+      // Add as placeholder
+      await _savePlaceholderManhwa(db, manhwaId);
+    }
+    
+    // Small delay to avoid overwhelming the plugin system
+    if (i < toAdd.length - 1) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+  }
+  
+  // Remove manhwas
+  for (final manhwaId in toRemove) {
+    await db.delete('manhwas', where: 'id = ?', whereArgs: [manhwaId]);
+    print('Removed: $manhwaId');
+  }
+  
+  print('Library sync completed');
+}
+
+// Helper method to parse manhwa ID and extract plugin info
+static (String, String) _parseManhwaId(String manhwaId) {
+  final parts = manhwaId.split(':');
+  if (parts.length > 1) {
+    return (parts[0], parts[1]);
+  }
+  // Default plugin if no plugin specified
+  return ('FLAMECOMICS', manhwaId);
+}
+
+// Helper method to save manhwa with chapters
+static Future<void> _saveManhwaWithChapters(
+  Database db, String manhwaId, Manhwa manhwaDetails) async {
+  
+  // Save manhwa
+  await db.insert('manhwas', {
+    'id': manhwaId,
+    'name': manhwaDetails.name,
+    'description': manhwaDetails.description,
+    'genres': manhwaDetails.genres.join(','),
+    'rating': manhwaDetails.rating,
+    'status': manhwaDetails.status,
+    'author': manhwaDetails.author,
+    'artist': manhwaDetails.artist,
+    'cover_image_url': manhwaDetails.coverImageUrl ?? '',
+  }, conflictAlgorithm: ConflictAlgorithm.replace);
+  
+  // Save chapters
+  for (final chapter in manhwaDetails.chapters) {
+    await db.insert('chapters', {
+      'manhwa_id': manhwaId,
+      'number': chapter.number,
+      'title': chapter.title,
+      'release_date': chapter.releaseDate.toIso8601String(),
+      'images': chapter.images.join('|'),
+      'is_read': 0,
+      'is_downloaded': 0,
+      'current_page': 0,
+      'scroll_position': 0.0,
+      'reading_time_seconds': 0,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+}
+
+// Helper method for placeholder manhwa
+static Future<void> _savePlaceholderManhwa(Database db, String manhwaId) async {
+  await db.insert('manhwas', {
+    'id': manhwaId,
+    'name': 'Synced Manhwa', 
+    'description': 'Details will be loaded when available',
+    'genres': '',
+    'rating': 0.0,
+    'status': 'Unknown',
+    'author': 'Unknown',
+    'artist': 'Unknown',
+    'cover_image_url': '',
+  }, conflictAlgorithm: ConflictAlgorithm.replace);
+}
+
+// Get local library for syncing to backend
+static Future<List<String>> getLocalLibrary() async {
+  final db = await database;
+  final results = await db.query('manhwas', columns: ['id']);
+  return results.map((row) => row['id'] as String).toList();
+}
+
+// Add manhwa to library (both locally and sync with backend)
+static Future<void> addToLibrary(String manhwaId, {
+  String name = '',
+  String description = '',
+  List<String> genres = const [],
+  double rating = 0.0,
+  String status = 'Unknown',
+  String author = 'Unknown',
+  String artist = 'Unknown',
+  String coverImageUrl = '',
+}) async {
+  final db = await database;
+  
+  await db.insert('manhwas', {
+    'id': manhwaId,
+    'name': name,
+    'description': description,
+    'genres': genres.join(','),
+    'rating': rating,
+    'status': status,
+    'author': author,
+    'artist': artist,
+    'cover_image_url': coverImageUrl,
+  }, conflictAlgorithm: ConflictAlgorithm.replace);
+  
+  print('Added manhwa $manhwaId to local library');
+}
+
+// Remove manhwa from library (both locally and sync with backend)
+static Future<void> removeFromLibrary(String manhwaId) async {
+  final db = await database;
+  await db.delete('manhwas', where: 'id = ?', whereArgs: [manhwaId]);
+  print('Removed manhwa $manhwaId from local library');
+}
+// Add this to your SQLiteProgressService class
+static Future<List<ProgressUpdate>> getAllProgressForSync() async {
+  final db = await database;
+  final results = await db.query(
+    'chapters',
+    where: 'current_page > 0 OR scroll_position > 0 OR is_read = 1',
+  );
+  
+  return results.map((row) => ProgressUpdate(
+    manhwaId: row['manhwa_id'] as String,
+    chapterNumber: (row['number'] as num).toDouble(),
+    currentPage: (row['current_page'] as num).toInt(),
+    scrollPosition: (row['scroll_position'] as num).toDouble(),
+    isRead: (row['is_read'] as int) == 1,
+  )).toList();
+}
 }

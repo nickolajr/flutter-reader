@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/manhwa_service.dart';
+import '../services/api_service.dart'; // Add this import
 import '../models/manwha.dart';
 import 'manhwa_screen.dart';
 
@@ -13,11 +14,51 @@ class LibraryScreen extends StatefulWidget {
 class _LibraryScreenState extends State<LibraryScreen> {
   List<Manhwa> manhwas = [];
   bool _isLoading = true;
-
+  bool _isSyncing = false;
+  String _syncProgress = '';
   @override
   void initState() {
     super.initState();
-    _loadManhwas();
+    _initializeLibrary();
+  }
+
+  Future<void> _initializeLibrary() async {
+    setState(() => _isLoading = true);
+    
+    try {
+      // Initialize API service first
+      await ApiService.initialize();
+      
+      // If logged in, sync with backend first
+      if (ApiService.isLoggedIn) {
+        setState(() => _isSyncing = true);
+        final syncResult = await ApiService.enhancedPullSync();
+        if (!syncResult.success) {
+          print('Sync failed: ${syncResult.error}');
+          // Continue loading local data even if sync fails
+        }
+        setState(() => _isSyncing = false);
+      }
+      
+      // Then load from local database
+      final loadedManhwas = await ManhwaService.getAllManhwa();
+      setState(() {
+        manhwas = loadedManhwas;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error initializing library: $e');
+      setState(() {
+        _isLoading = false;
+        _isSyncing = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load library: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _loadManhwas() async {
@@ -41,10 +82,248 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  // Delete manhwa method - UPDATED to sync with backend
+  Future<void> _deleteManhwa(Manhwa manhwa) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF2a2a2a),
+        title: const Text(
+          'Remove from Library',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          'Are you sure you want to remove "${manhwa.name}" from your library?',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text(
+              'Remove',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldDelete == true) {
+      try {
+        // Remove from local database
+        await ManhwaService.deleteManhwa(manhwa.id);
+        
+        // If logged in, sync removal with backend
+        if (ApiService.isLoggedIn) {
+          await ApiService.syncLibrary(remove: [manhwa.id]);
+        }
+        
+        setState(() {
+          manhwas.removeWhere((m) => m.id == manhwa.id);
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"${manhwa.name}" removed from library'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } catch (e) {
+        print('Error deleting manhwa: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to remove manhwa: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // NEW: Sync with backend method
+Future<void> _syncWithBackend() async {
+  if (!ApiService.isLoggedIn) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please log in to sync with backend'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+    return;
+  }
+
+  setState(() {
+    _isSyncing = true;
+    _syncProgress = 'Starting sync...';
+  });
+  
+  try {
+    final result = await ApiService.enhancedPullSync();
+    if (result.success) {
+      setState(() {
+        _syncProgress = 'Loading library details...';
+      });
+      
+      // Reload the library to show newly synced items
+      await _loadManhwas();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Successfully synced with backend'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Sync failed: ${result.error}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Sync error: $e'),
+        backgroundColor: Colors.red,
+      ),
+    );
+  } finally {
+    setState(() {
+      _isSyncing = false;
+      _syncProgress = '';
+    });
+  }
+}
+
+  // Show context menu on right-click/long-press
+  void _showContextMenu(Manhwa manhwa, TapDownDetails details) {
+    final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final RelativeRect position = RelativeRect.fromSize(
+      Rect.fromPoints(
+        details.globalPosition,
+        details.globalPosition,
+      ),
+      overlay.size,
+    );
+
+    showMenu<String>(
+      context: context,
+      position: position,
+      items: [
+        const PopupMenuItem<String>(
+          value: 'open',
+          child: Row(
+            children: [
+              Icon(Icons.open_in_new, size: 20),
+              SizedBox(width: 8),
+              Text('Open'),
+            ],
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'delete',
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline, color: Colors.red, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Remove from Library',
+                style: TextStyle(color: Colors.red),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == 'open') {
+        _openManhwa(manhwa);
+      } else if (value == 'delete') {
+        _deleteManhwa(manhwa);
+      }
+    });
+  }
+
+  // Open manhwa method
+  void _openManhwa(Manhwa manhwa) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ManhwaScreen(
+          manhwaId: manhwa.id,
+          name: manhwa.name,
+          genre: manhwa.genreString,
+        ),
+      ),
+    );
+    
+    if (result == true) {
+      _loadManhwas();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
+        // App Bar
+        Container(
+          height: 56,
+          color: const Color(0xFF1a1a1a),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              const Text(
+                'Library',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Spacer(),
+              // Sync indicator/button
+              if (_isSyncing)
+                const Padding(
+                  padding: EdgeInsets.only(right: 8.0),
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF6c5ce7),
+                    ),
+                  ),
+                ),
+              IconButton(
+                icon: const Icon(Icons.sync, color: Colors.white),
+                onPressed: _isSyncing ? null : _syncWithBackend,
+                tooltip: 'Sync with backend',
+              ),
+              IconButton(
+                icon: const Icon(Icons.sort, color: Colors.white),
+                onPressed: _showSortOptions,
+                tooltip: 'Sort library',
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.white),
+                onPressed: _loadManhwas,
+                tooltip: 'Refresh library',
+              ),
+            ],
+          ),
+        ),
         Expanded(child: _buildLibraryContent()),
       ],
     );
@@ -53,7 +332,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _buildLibraryContent() {
     if (_isLoading) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF6c5ce7)),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Color(0xFF6c5ce7)),
+            SizedBox(height: 16),
+            Text(
+              'Loading library...',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
       );
     }
 
@@ -99,6 +388,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 style: TextStyle(color: Colors.white),
               ),
             ),
+            const SizedBox(height: 16),
+            if (ApiService.isLoggedIn)
+              ElevatedButton.icon(
+                onPressed: _syncWithBackend,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00b894),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.sync, color: Colors.white),
+                label: const Text(
+                  'Sync with Backend',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
           ],
         ),
       );
@@ -106,10 +411,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
     return RefreshIndicator(
       onRefresh: _loadManhwas,
+      backgroundColor: const Color(0xFF2a2a2a),
+      color: const Color(0xFF6c5ce7),
       child: _buildLibraryGrid(),
     );
   }
 
+  // Rest of your methods remain the same...
   Widget _buildLibraryGrid() {
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -130,23 +438,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _buildManhwaCard(Manhwa manhwa) {
     return GestureDetector(
-      onTap: () async {
-        final result = await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ManhwaScreen(
-              manhwaId: manhwa.id,
-              name: manhwa.name,
-              genre: manhwa.genreString,
-            ),
-          ),
-        );
-        
-        // Refresh if needed
-        if (result == true) {
-          _loadManhwas();
-        }
-      },
+      onTap: () => _openManhwa(manhwa),
+      onLongPress: () => _deleteManhwa(manhwa),
+      onSecondaryTapDown: (details) => _showContextMenu(manhwa, details),
       child: Container(
         decoration: BoxDecoration(
           color: const Color(0xFF2a2a2a),
@@ -324,7 +618,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Sorted by $title')),
+          SnackBar(
+            content: Text('Sorted by $title'),
+            backgroundColor: const Color(0xFF6c5ce7),
+          ),
         );
       },
     );
